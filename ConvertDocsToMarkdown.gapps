@@ -1,13 +1,14 @@
 /*
 Usage: 
-  Create a google sheet as my google sheet: 
+    Create a google sheet as my google sheet: 
     - Tools > Edit Script > New
     - Select "Blank Project", then paste this code in and save.
     -add resource -  advance google service - Drive & sheet
+    -change paramether with yours google docs id
   Running the script:
     - on the gogol sheet button add processDocsInFolder as script to call
     - Click Run button.
-    - Converted url to xip will be mailed to you. Subject will be "[MARKDOWN_MAKER]...".
+    - Converted url to zip will be mailed to you. Subject will be "[MARKDOWN_MAKER]...".
 */
 
 //change this id with your id
