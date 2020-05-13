@@ -8,14 +8,11 @@ The google script converts all the documents listed in a Google sheet, organizes
     - Tools > Edit Script > New
     - Select "Blank Project", then paste this code in and save.
     -add resource -  advance google service - Drive & sheet
+    -change paramether with yours google docs id
   Running the script:
     - on the gogol sheet button add processDocsInFolder as script to call
     - Click Run button.
-    - Converted url to xip will be mailed to you. Subject will be "[MARKDOWN_MAKER]...".
-
-change this paramether with yours google docs id
-var PathToBaseId = "change this id with your folder id containing file excel";  //"BlogProd";
-var spreadsheetId = "change this id with your spreadsheetId";
+    - Converted url to zip will be mailed to you. Subject will be "[MARKDOWN_MAKER]...".
 
 link to full blog explains
 
