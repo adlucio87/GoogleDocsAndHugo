@@ -1,0 +1,10 @@
+function doGet(e) {
+  params = JSON.parse(JSON.stringify(e));
+  var folderid = params.parameters.folderid;
+  if(folderid==null || folderid=="") return;
+  //var PathToBaseId = params.id;  //"BlogProd";
+  var parentFolder=DriveApp.getFolderById(folderid);
+  if(parentFolder==null) return;
+  var url = parentFolder.getFilesByName("BlogProd.zip").next().getDownloadUrl();
+  return ContentService.createTextOutput(url);
+}
