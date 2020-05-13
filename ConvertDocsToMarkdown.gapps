@@ -1,0 +1,490 @@
+/*
+Usage: 
+  Create a google sheet as my google sheet: 
+    - Tools > Edit Script > New
+    - Select "Blank Project", then paste this code in and save.
+    -add resource -  advance google service - Drive & sheet
+  Running the script:
+    - on the gogol sheet button add processDocsInFolder as script to call
+    - Click Run button.
+    - Converted url to xip will be mailed to you. Subject will be "[MARKDOWN_MAKER]...".
+*/
+
+//change this id with your id
+var PathToBaseId = "change this id with your folder id containing file excel";  //"BlogProd";
+var spreadsheetId = "change this id with your spreadsheetId";
+var PathToImgId;
+var addtozip  = true;
+var senByMail = false;
+
+//da gestire 
+var PathToId;
+var summaryImage;
+var summary;
+var tags;
+var title;
+var category;
+
+function processDocsInFolder () {
+  Logger.log("start");
+  
+  var rangeName = 'A2:L';
+  var categoryFolder;
+  
+  var parentFolder=DriveApp.getFolderById(PathToBaseId);
+  var values = Sheets.Spreadsheets.Values.get(spreadsheetId, rangeName).values;
+  
+  while(parentFolder.getFolders().hasNext())
+  {
+    parentFolder.getFolders().next().setTrashed(true);
+  }
+  while(parentFolder.getFiles().hasNext())
+  {
+    parentFolder.getFiles().next().setTrashed(true);
+  }
+  
+  
+  if (!values) {
+    Logger.log('No data found.');
+  } else {
+    for (var row = 0; row < values.length; row++) {
+      if(values[row][0]==1)
+      {
+        summaryImage = values[row][3];
+        summary = values[row][2];
+        tags =  concatTags(values[row]);
+        title = values[row][1];
+        category = values[row][4];
+        Logger.log(title);
+        
+        var re = new RegExp(" ", 'g');
+        var folder = title.replace(re, '_');
+        
+        if(!parentFolder.getFoldersByName(category).hasNext())
+        {
+          categoryFolder=parentFolder.createFolder(category);
+        }
+        else
+        {
+          categoryFolder=DriveApp.getFoldersByName(category).next();
+        }
+        
+        var newFolder=categoryFolder.createFolder(folder)
+        PathToId = newFolder.getId();
+        PathToImgId=newFolder.createFolder("images").getId();
+
+        var file = DriveApp.getFilesByName(title).next();
+        Logger.log(file.getMimeType());
+        ConvertToMarkdown(file.getId());
+        
+      }
+    }
+  }
+  
+  if(addtozip)
+  {
+    var zipped = Utilities.zip(getBlobs(parentFolder, ''), parentFolder.getName()+'.zip');
+    var file = parentFolder.createFile(zipped);
+    var url = file.setSharing(DriveApp.Access.ANYONE_WITH_LINK, DriveApp.Permission.VIEW).getDownloadUrl();
+    Logger.log(url);    
+    //var property = {key:'prod', value: 'prod', visibity: 'PUBLIC'};
+    //Drive.Properties.insert(property, fileId);
+    if(senByMail)
+    {  
+      //attachments.push({"fileName":parentFolder.getName()+'.zip', "mimeType": "application/zip", "content": file.getBlob() });
+      MailApp.sendEmail(Session.getActiveUser().getEmail(), 
+                        "[MARKDOWN_MAKER] ",
+                        "Your converted documents can be download from: "+url+")");
+    }
+    
+  }
+}
+
+
+function getBlobs(rootFolder, path) {
+  var blobs = [];
+  var files = rootFolder.getFiles();
+  while (files.hasNext()) {
+    var file = files.next().getBlob();
+    file.setName(path+file.getName());
+    blobs.push(file);
+  }
+  var folders = rootFolder.getFolders();
+  while (folders.hasNext()) {
+    var folder = folders.next();
+    var fPath = path+folder.getName()+'/';
+    blobs.push(Utilities.newBlob([]).setName(fPath)); //comment/uncomment this line to skip/include empty folders
+    blobs = blobs.concat(getBlobs(folder, fPath));
+  }
+  return blobs;
+}
+
+function concatTags(row)
+{
+  var ret;
+  if(row[6]!="")
+    ret="\""+row[6]+"\"";
+  if(row[7]!="")
+    ret+=",\""+row[7]+"\"";
+  if(row[8]!="")
+    ret+=",\""+row[8]+"\"";
+  if(row[9]!="")
+    ret+=",\""+row[9]+"\"";
+  if(row[10]!="")
+    ret+=",\""+row[10]+"\"";
+  
+  return ret;
+}
+
+function ConvertToMarkdown(docid) {
+  
+  var docs = DocumentApp.openById(docid);
+  var title = docs.getName();
+  var body = docs.getBody();
+  //var fileid = title.split("_")[0];
+  //title = title.replace(fileid+"_","");
+
+  
+  //devo verificare dei file in una cartella e processarli non va bene il corrente
+  var numChildren = body.getNumChildren();
+  var text = "";
+  var inSrc = false;
+  var inClass = false;
+  var globalImageCounter = 0;
+  var globalListCounters = {};
+  // edbacher: added a variable for indent in src <pre> block. Let style sheet do margin.
+  var srcIndent = "";
+  
+  //var attachments = [];
+  var creationdate = DriveApp.getFileById(docid).getDateCreated();
+  let formatted_date = creationdate.getFullYear() + "-" + ('0' + creationdate.getMonth()).slice(-2) + "-" + ('0' + creationdate.getDate()).slice(-2);
+  
+  text+="---\n";
+  text+="title: \"" + title +"\"\n";
+  text+="date: \"" +  formatted_date  +"\"\n";
+  text+="draft: false\n";
+  text+="keepImageRatio: true\n";
+  text+="summaryImage: \"{SUMMARYIMAGE}\"\n";
+  text+="tags: ["+tags+']\n';
+  text+="summary: \""+summary+"\"\n";
+  text+="---\n\n";
+  
+  
+  // Walk through all the child elements of the doc.
+  for (var i = 0; i < numChildren; i++) {
+    var child = body.getChild(i);
+    var result = processParagraph(docid,i, child, inSrc, globalImageCounter, globalListCounters);
+    globalImageCounter += (result && result.images) ? result.images.length : 0;
+    if (result!==null) {
+      if (result.sourcePretty==="start" && !inSrc) {
+        inSrc=true;
+        text+="<pre class=\"prettyprint\">\n";
+      } else if (result.sourcePretty==="end" && inSrc) {
+        inSrc=false;
+        text+="</pre>\n\n";
+      } else if (result.source==="start" && !inSrc) {
+        inSrc=true;
+        text+="<pre>\n";
+      } else if (result.source==="end" && inSrc) {
+        inSrc=false;
+        text+="</pre>\n\n";
+      } else if (result.inClass==="start" && !inClass) {
+        inClass=true;
+        text+="<div class=\""+result.className+"\">\n";
+      } else if (result.inClass==="end" && inClass) {
+        inClass=false;
+        text+="</div>\n\n";
+      } else if (inClass) {
+        text+=result.text+"\n\n";
+      } else if (inSrc) {
+        text+=(srcIndent+escapeHTML(result.text)+"\n");
+      } else if (result.text && result.text.length>0) {
+        text+=result.text+"\n\n";
+      }
+      
+      if (result.images && result.images.length>0) {
+        for (var j=0; j<result.images.length; j++) {
+          saveImg(result,j);
+          if(j==summaryImage)
+          {
+            text = text.replace(/{SUMMARYIMAGE}/gm, result.images[j].name);
+          }
+        }
+      }
+      
+      
+    } else if (inSrc) { // support empty lines inside source code
+      text+='\n';
+    }
+      
+  }
+  
+  
+  //salvo su drive
+  saveDoc(text, title);
+  //return text;
+}
+
+
+
+
+function saveImg(result,j)
+{
+    
+  //salvo le immagini
+  var fileSets = {
+    title: (result.images[j].name).replace("images/", ""),
+    "parents": [{'id': PathToImgId}],  //<--By setting this parent ID to the folder's ID, it creates this file in the correct folder.
+    mimeType: result.images[j].type
+  };
+  
+  var blob = Utilities.newBlob(result.images[j].bytes ,result.images[j].type);
+    
+  var filesaved = Drive.Files.insert(fileSets, blob );
+  
+  //Logger.log('ID: %s, File size (bytes): %s, type: %s', file.id, file.fileSize, file.mimeType);
+  
+  
+  //se voglio esporlo in output potrebbe non essere male vediamo
+  //return ContentService.createTextOutput(text);
+}
+
+function saveDoc(text, title)
+{
+  
+  //4 salvo il file su drive come MarckDown
+  var fileSets = {
+    //title: title + '.md',
+    title: 'index.md',
+    "parents": [{'id': PathToId}],  //<--By setting this parent ID to the folder's ID, it creates this file in the correct folder.
+    mimeType: 'text/plain'
+  };
+  
+  var blob = Utilities.newBlob(text , "application/vnd.google-apps.script+md");
+    
+  var filesaved = Drive.Files.insert(fileSets, blob);
+  
+  //Logger.log('ID: %s, File size (bytes): %s, type: %s', file.id, file.fileSize, file.mimeType);
+  
+  
+  //se voglio esporlo in output potrebbe non essere male vediamo
+  //return ContentService.createTextOutput(text);
+}
+
+
+
+
+
+function escapeHTML(text) {
+  return text.replace(/</g, '&lt;').replace(/>/g, '&gt;');
+}
+
+// Process each child element (not just paragraphs).
+function processParagraph(docid, index, element, inSrc, imageCounter, listCounters) {
+  // First, check for things that require no processing.
+  if (element.getNumChildren()==0) {
+    return null;
+  }  
+  // Punt on TOC.
+  if (element.getType() === DocumentApp.ElementType.TABLE_OF_CONTENTS) {
+    return {"text": "[[TOC]]"};
+  }
+  
+  // Set up for real results.
+  var result = {};
+  var pOut = "";
+  var textElements = [];
+  var imagePrefix = "images/"+docid+"_";
+  
+  // Handle Table elements. Pretty simple-minded now, but works for simple tables.
+  // Note that Markdown does not process within block-level HTML, so it probably 
+  // doesn't make sense to add markup within tables.
+  if (element.getType() === DocumentApp.ElementType.TABLE) {
+    textElements.push("<table>\n");
+    var nCols = element.getChild(0).getNumCells();
+    for (var i = 0; i < element.getNumChildren(); i++) {
+      textElements.push("  <tr>\n");
+      // process this row
+      for (var j = 0; j < nCols; j++) {
+        textElements.push("    <td>" + element.getChild(i).getChild(j).getText() + "</td>\n");
+      }
+      textElements.push("  </tr>\n");
+    }
+    textElements.push("</table>\n");
+  }
+  
+  // Process various types (ElementType).
+  for (var i = 0; i < element.getNumChildren(); i++) {
+    var t=element.getChild(i).getType();
+    
+    if (t === DocumentApp.ElementType.TABLE_ROW) {
+      // do nothing: already handled TABLE_ROW
+    } else if (t === DocumentApp.ElementType.TEXT) {
+      var txt=element.getChild(i);
+      pOut += txt.getText();
+      textElements.push(txt);
+    } else if (t === DocumentApp.ElementType.INLINE_IMAGE) {
+      result.images = result.images || [];
+      var contentType = element.getChild(i).getBlob().getContentType();
+      var extension = "";
+      if (/\/png$/.test(contentType)) {
+        extension = ".png";
+      } else if (/\/gif$/.test(contentType)) {
+        extension = ".gif";
+      } else if (/\/jpe?g$/.test(contentType)) {
+        extension = ".jpg";
+      } else {
+        throw "Unsupported image type: "+contentType;
+      }
+      var name = imagePrefix + imageCounter + extension;
+      imageCounter++;
+      //textElements.push('![image alt text]('+name+')');      
+      var w=element.getChild(i).getWidth();
+      textElements.push('{{< img resizedURL="'+name+'" alt="" width="'+w+'" >}}');
+     
+      result.images.push( {
+        "bytes": element.getChild(i).getBlob().getBytes(), 
+        "type": contentType, 
+        "name": name});
+    } else if (t === DocumentApp.ElementType.PAGE_BREAK) {
+      // ignore
+    } else if (t === DocumentApp.ElementType.HORIZONTAL_RULE) {
+      textElements.push('* * *\n');
+    } else if (t === DocumentApp.ElementType.FOOTNOTE) {
+      textElements.push(' (NOTE: '+element.getChild(i).getFootnoteContents().getText()+')');
+    } else {
+      throw "Paragraph "+index+" of type "+element.getType()+" has an unsupported child: "
+      +t+" "+(element.getChild(i)["getText"] ? element.getChild(i).getText():'')+" index="+index;
+    }
+  }
+
+  if (textElements.length==0) {
+    // Isn't result empty now?
+    return result;
+  }
+  
+  // evb: Add source pretty too. (And abbreviations: src and srcp.)
+  // process source code block:
+  if (/^\s*---\s+srcp\s*$/.test(pOut) || /^\s*---\s+source pretty\s*$/.test(pOut)) {
+    result.sourcePretty = "start";
+  } else if (/^\s*---\s+src\s*$/.test(pOut) || /^\s*---\s+source code\s*$/.test(pOut)) {
+    result.source = "start";
+  } else if (/^\s*---\s+class\s+([^ ]+)\s*$/.test(pOut)) {
+    result.inClass = "start";
+    result.className = RegExp.$1;
+  } else if (/^\s*---\s*$/.test(pOut)) {
+    result.source = "end";
+    result.sourcePretty = "end";
+    result.inClass = "end";
+  } else if (/^\s*---\s+jsperf\s*([^ ]+)\s*$/.test(pOut)) {
+    result.text = '<iframe style="width: 100%; height: 340px; overflow: hidden; border: 0;" '+
+                  'src="http://www.html5rocks.com/static/jsperfview/embed.html?id='+RegExp.$1+
+                  '"></iframe>';
+  } else {
+
+    prefix = findPrefix(inSrc, element, listCounters);
+  
+    var pOut = "";
+    for (var i=0; i<textElements.length; i++) {
+      pOut += processTextElement(inSrc, textElements[i]);
+    }
+
+    // replace Unicode quotation marks
+    pOut = pOut.replace('\u201d', '"').replace('\u201c', '"');
+ 
+    result.text = prefix+pOut;
+  }
+  
+  return result;
+}
+
+// Add correct prefix to list items.
+function findPrefix(inSrc, element, listCounters) {
+  var prefix="";
+  if (!inSrc) {
+    if (element.getType()===DocumentApp.ElementType.PARAGRAPH) {
+      var paragraphObj = element;
+      switch (paragraphObj.getHeading()) {
+        // Add a # for each heading level. No break, so we accumulate the right number.
+        case DocumentApp.ParagraphHeading.HEADING6: prefix+="#";
+        case DocumentApp.ParagraphHeading.HEADING5: prefix+="#";
+        case DocumentApp.ParagraphHeading.HEADING4: prefix+="#";
+        case DocumentApp.ParagraphHeading.HEADING3: prefix+="#";
+        case DocumentApp.ParagraphHeading.HEADING2: prefix+="#";
+        case DocumentApp.ParagraphHeading.HEADING1: prefix+="# ";
+        default:
+      }
+    } else if (element.getType()===DocumentApp.ElementType.LIST_ITEM) {
+      var listItem = element;
+      var nesting = listItem.getNestingLevel()
+      for (var i=0; i<nesting; i++) {
+        prefix += "    ";
+      }
+      var gt = listItem.getGlyphType();
+      // Bullet list (<ul>):
+      if (gt === DocumentApp.GlyphType.BULLET
+          || gt === DocumentApp.GlyphType.HOLLOW_BULLET
+          || gt === DocumentApp.GlyphType.SQUARE_BULLET) {
+        prefix += "* ";
+      } else {
+        // Ordered list (<ol>):
+        var key = listItem.getListId() + '.' + listItem.getNestingLevel();
+        var counter = listCounters[key] || 0;
+        counter++;
+        listCounters[key] = counter;
+        prefix += counter+". ";
+      }
+    }
+  }
+  return prefix;
+}
+
+function processTextElement(inSrc, txt) {
+  if (typeof(txt) === 'string') {
+    return txt;
+  }
+  
+  var pOut = txt.getText();
+  if (! txt.getTextAttributeIndices) {
+    return pOut;
+  }
+  
+  var attrs=txt.getTextAttributeIndices();
+  var lastOff=pOut.length;
+
+  for (var i=attrs.length-1; i>=0; i--) {
+    var off=attrs[i];
+    var url=txt.getLinkUrl(off);
+    var font=txt.getFontFamily(off);
+    if (url) {  // start of link
+      if (i>=1 && attrs[i-1]==off-1 && txt.getLinkUrl(attrs[i-1])===url) {
+        // detect links that are in multiple pieces because of errors on formatting:
+        i-=1;
+        off=attrs[i];
+        url=txt.getLinkUrl(off);
+      }
+      pOut=pOut.substring(0, off)+'['+pOut.substring(off, lastOff)+']('+url+')'+pOut.substring(lastOff);
+    } else if (font) {
+      if (!inSrc && font===font.COURIER_NEW) {
+        while (i>=1 && txt.getFontFamily(attrs[i-1]) && txt.getFontFamily(attrs[i-1])===font.COURIER_NEW) {
+          // detect fonts that are in multiple pieces because of errors on formatting:
+          i-=1;
+          off=attrs[i];
+        }
+        pOut=pOut.substring(0, off)+'`'+pOut.substring(off, lastOff)+'`'+pOut.substring(lastOff);
+      }
+    }
+    if (txt.isBold(off)) {
+      var d1 = d2 = "**";
+      if (txt.isItalic(off)) {
+        // edbacher: changed this to handle bold italic properly.
+        d1 = "**_"; d2 = "_**";
+      }
+      pOut=pOut.substring(0, off)+d1+pOut.substring(off, lastOff)+d2+pOut.substring(lastOff);
+    } else if (txt.isItalic(off)) {
+      pOut=pOut.substring(0, off)+'*'+pOut.substring(off, lastOff)+'*'+pOut.substring(lastOff);
+    }
+    lastOff=off;
+  }
+  return pOut;
+}
