@@ -1,22 +1,30 @@
 /*
 Usage: 
-    Create a google sheet as my google sheet: 
+  Create a google sheet as my google sheet: 
     - Tools > Edit Script > New
     - Select "Blank Project", then paste this code in and save.
     -add resource -  advance google service - Drive & sheet
-    -change paramether with yours google docs id
   Running the script:
     - on the gogol sheet button add processDocsInFolder as script to call
     - Click Run button.
-    - Converted url to zip will be mailed to you. Subject will be "[MARKDOWN_MAKER]...".
+    - Converted url to xip will be mailed to you. Subject will be "[MARKDOWN_MAKER]...".
+    
+{{< htmlTable "table table-dark table-striped table-bordered" >}}
+| Animal  | Sounds |
+|---------|--------|
+| Cat     | Meow   |
+| Dog     | Woof   |
+| Cricket | Chirp  |
+{{< /htmlTable >}}
+
 */
 
 //change this id with your id
-var PathToBaseId = "change this id with your folder id containing file excel";  //"BlogProd";
-var spreadsheetId = "change this id with your spreadsheetId";
+var PathToBaseId = "1HNUag3EPSmtapR2ObTjdVig1e5eJfpit";  //"BlogProd";
 var PathToImgId;
 var addtozip  = true;
 var senByMail = false;
+var htmlTable = false;
 
 //da gestire 
 var PathToId;
@@ -29,6 +37,7 @@ var category;
 function processDocsInFolder () {
   Logger.log("start");
   
+  var spreadsheetId = "1hXgxQ5HcdXkjPNciXt3LKD5Dmg60-7zC9c5XqJutd78";
   var rangeName = 'A2:L';
   var categoryFolder;
   
@@ -74,6 +83,13 @@ function processDocsInFolder () {
         PathToId = newFolder.getId();
         PathToImgId=newFolder.createFolder("images").getId();
 
+        if(!DriveApp.getFilesByName(title).hasNext())
+        {
+          Logger.log(title+" mancante");          
+          //Sheets.Spreadsheets.Values.update( "{" + title+" mancante }", spreadsheetId, 'Link!C2');            
+          continue;          
+        }
+        
         var file = DriveApp.getFilesByName(title).next();
         Logger.log(file.getMimeType());
         ConvertToMarkdown(file.getId());
@@ -120,6 +136,7 @@ function getBlobs(rootFolder, path) {
   return blobs;
 }
 
+
 function concatTags(row)
 {
   var ret;
@@ -158,7 +175,7 @@ function ConvertToMarkdown(docid) {
   
   //var attachments = [];
   var creationdate = DriveApp.getFileById(docid).getDateCreated();
-  let formatted_date = creationdate.getFullYear() + "-" + ('0' + creationdate.getMonth()).slice(-2) + "-" + ('0' + creationdate.getDate()).slice(-2);
+  let formatted_date = creationdate.getFullYear() + "-" + ('0' + creationdate.getMonth()+1).slice(-2) + "-" + ('0' + creationdate.getDate()).slice(-2);
   
   text+="---\n";
   text+="title: \"" + title +"\"\n";
@@ -301,18 +318,69 @@ function processParagraph(docid, index, element, inSrc, imageCounter, listCounte
   // Note that Markdown does not process within block-level HTML, so it probably 
   // doesn't make sense to add markup within tables.
   if (element.getType() === DocumentApp.ElementType.TABLE) {
-    textElements.push("<table>\n");
-    var nCols = element.getChild(0).getNumCells();
-    for (var i = 0; i < element.getNumChildren(); i++) {
-      textElements.push("  <tr>\n");
-      // process this row
-      for (var j = 0; j < nCols; j++) {
-        textElements.push("    <td>" + element.getChild(i).getChild(j).getText() + "</td>\n");
+    if(htmlTable)
+    {
+      textElements.push("<table>\n");
+      var nCols = element.getChild(0).getNumCells();
+      for (var i = 0; i < element.getNumChildren(); i++) {
+        textElements.push("  <tr>\n");
+        // process this row
+        for (var j = 0; j < nCols; j++) {
+          textElements.push("    <td>" + element.getChild(i).getChild(j).getText() + "</td>\n");
+        }
+        textElements.push("  </tr>\n");
       }
-      textElements.push("  </tr>\n");
+      textElements.push("</table>\n");
     }
-    textElements.push("</table>\n");
+    else
+    {
+      
+      var nCols = element.getChild(0).getNumCells();
+      var maxlen = [nCols];
+      
+      for (var i = 0; i < element.getNumChildren(); i++) {
+        // process this row
+        for (var j = 0; j < nCols; j++) {
+          //maxlen[j] = j;
+          if(i==0) maxlen[j] = 0;
+          if(maxlen[j] < element.getChild(i).getChild(j).getText().length)
+             maxlen[j] = element.getChild(i).getChild(j).getText().length;
+        }
+      }
+      
+      textElements.push("{{< htmlTable \"table table-dark table-striped table-bordered\" >}}\n");
+      for (var i = 0; i < element.getNumChildren(); i++) {
+        //textElements.push(" | ");
+        // process this row
+        for (var j = 0; j < nCols; j++) {
+          if(j==0)  textElements.push(" | " );
+          
+          var space = ' '.repeat(maxlen[j] - element.getChild(i).getChild(j).getText().length);
+          textElements.push( element.getChild(i).getChild(j).getText() + space + " | ");
+        }
+        
+        textElements.push(" \n");
+        
+        if( i == 0)
+        {
+          for (var j = 0; j < nCols; j++) {
+            if(j==0) 
+            {
+              textElements.push(" | " );
+            }
+            
+            var trattini = '-'.repeat(maxlen[j]);
+            textElements.push(trattini + " | ");
+          }
+          textElements.push(" \n");
+        }
+        //textElements.push("  </tr>\n");
+      }      
+      textElements.push("{{< /htmlTable >}}\n");
+      
+    }
   }
+  
   
   // Process various types (ElementType).
   for (var i = 0; i < element.getNumChildren(); i++) {
