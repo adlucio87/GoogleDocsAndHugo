@@ -9,6 +9,7 @@ Usage:
     - Click Run button.
     - Converted url to xip will be mailed to you. Subject will be "[MARKDOWN_MAKER]...".
     
+for having a table like this: set  htmlTable = false;
 {{< htmlTable "table table-dark table-striped table-bordered" >}}
 | Animal  | Sounds |
 |---------|--------|
@@ -16,6 +17,11 @@ Usage:
 | Dog     | Woof   |
 | Cricket | Chirp  |
 {{< /htmlTable >}}
+
+if you wont a code section use 
+{{< code language="javascript" >}}
+//code here
+{{< /code >}}
 
 */
 
@@ -33,6 +39,7 @@ var summary;
 var tags;
 var title;
 var category;
+var formatted_date;
 
 function processDocsInFolder () {
   Logger.log("start");
@@ -65,6 +72,7 @@ function processDocsInFolder () {
         tags =  concatTags(values[row]);
         title = values[row][1];
         category = values[row][4];
+        formatted_date = values[row][5];
         Logger.log(title);
         
         var re = new RegExp(" ", 'g');
@@ -174,8 +182,10 @@ function ConvertToMarkdown(docid) {
   var srcIndent = "";
   
   //var attachments = [];
-  var creationdate = DriveApp.getFileById(docid).getDateCreated();
-  let formatted_date = creationdate.getFullYear() + "-" + ('0' + creationdate.getMonth()+1).slice(-2) + "-" + ('0' + creationdate.getDate()).slice(-2);
+  //var creationdate = DriveApp.getFileById(docid).getDateCreated();
+  //let formatted_date = creationdate.getFullYear() + "-" + ('0' + (creationdate.getMonth()+1) ).slice(-2) + "-" + ('0' + creationdate.getDate()).slice(-2);
+  //let formatted_date = Utilities.formatDate(DriveApp.getFileById(docid).getDateCreated(), timeZone, "YYYY-MM-dd");
+  
   
   text+="---\n";
   text+="title: \"" + title +"\"\n";
@@ -248,7 +258,6 @@ function ConvertToMarkdown(docid) {
 
 function saveImg(result,j)
 {
-    
   //salvo le immagini
   var fileSets = {
     title: (result.images[j].name).replace("images/", ""),
@@ -259,20 +268,12 @@ function saveImg(result,j)
   var blob = Utilities.newBlob(result.images[j].bytes ,result.images[j].type);
     
   var filesaved = Drive.Files.insert(fileSets, blob );
-  
-  //Logger.log('ID: %s, File size (bytes): %s, type: %s', file.id, file.fileSize, file.mimeType);
-  
-  
-  //se voglio esporlo in output potrebbe non essere male vediamo
-  //return ContentService.createTextOutput(text);
 }
 
 function saveDoc(text, title)
 {
-  
-  //4 salvo il file su drive come MarckDown
+  //salvo il file su drive come MarckDown
   var fileSets = {
-    //title: title + '.md',
     title: 'index.md',
     "parents": [{'id': PathToId}],  //<--By setting this parent ID to the folder's ID, it creates this file in the correct folder.
     mimeType: 'text/plain'
@@ -281,21 +282,15 @@ function saveDoc(text, title)
   var blob = Utilities.newBlob(text , "application/vnd.google-apps.script+md");
     
   var filesaved = Drive.Files.insert(fileSets, blob);
-  
-  //Logger.log('ID: %s, File size (bytes): %s, type: %s', file.id, file.fileSize, file.mimeType);
-  
-  
-  //se voglio esporlo in output potrebbe non essere male vediamo
-  //return ContentService.createTextOutput(text);
 }
-
-
-
-
 
 function escapeHTML(text) {
   return text.replace(/</g, '&lt;').replace(/>/g, '&gt;');
 }
+
+
+var iscode=false;
+var codeBlock = "";
 
 // Process each child element (not just paragraphs).
 function processParagraph(docid, index, element, inSrc, imageCounter, listCounters) {
@@ -334,7 +329,6 @@ function processParagraph(docid, index, element, inSrc, imageCounter, listCounte
     }
     else
     {
-      
       var nCols = element.getChild(0).getNumCells();
       var maxlen = [nCols];
       
@@ -381,17 +375,31 @@ function processParagraph(docid, index, element, inSrc, imageCounter, listCounte
     }
   }
   
-  
   // Process various types (ElementType).
   for (var i = 0; i < element.getNumChildren(); i++) {
+
     var t=element.getChild(i).getType();
     
     if (t === DocumentApp.ElementType.TABLE_ROW) {
       // do nothing: already handled TABLE_ROW
     } else if (t === DocumentApp.ElementType.TEXT) {
+      //se è codice non devo mettere accapo
       var txt=element.getChild(i);
       pOut += txt.getText();
-      textElements.push(txt);
+      //textElements.push(txt);
+      
+      if(txt.getText().startsWith("{{< code")) iscode = true;
+
+      if(iscode == false) textElements.push(txt);
+      
+      if(iscode == true) codeBlock += txt.getText() + "\n";
+      
+      if(txt.getText().startsWith("{{< /code >}}") && iscode == true) {
+        iscode = false;
+        textElements.push(codeBlock);
+        codeBlock = ""
+      }
+      
     } else if (t === DocumentApp.ElementType.INLINE_IMAGE) {
       result.images = result.images || [];
       var contentType = element.getChild(i).getBlob().getContentType();
